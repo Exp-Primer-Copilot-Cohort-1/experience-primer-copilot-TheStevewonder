@@ -1,70 +1,63 @@
-//create web server 
-var http = require('http');
-var fs = require('fs');
-var path = require('path');
-var mime = require('mime');
-var comments = require('./comments');
+// Create web server 
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const app = express();
+const axios = require('axios');
 
-//create server
-var server = http.createServer(function(req,res){
-	//get url
-	var url = req.url;
-	//get method
-	var method = req.method.toLowerCase();
-	//get pathname
-	var pathname = url.split('?')[0];
-	//get query
-	var query = url.split('?')[1];
-	//get queryObj
-	var queryObj = {};
-	query && query.split('&').forEach(function(item){
-		var arr = item.split('=');
-		queryObj[arr[0]] = arr[1];
-	});
-	//get post data
-	var str = '';
-	req.on('data',function(data){
-		str += data;
-	});
-	req.on('end',function(){
-		var post = {};
-		str && str.split('&').forEach(function(item){
-			var arr = item.split('=');
-			post[arr[0]] = arr[1];
-		});
-		//pathname
-		if(pathname == '/'){
-			//read index.html
-			fs.readFile('./index.html',function(err,data){
-				if(err){
-					res.setHeader('Content-Type','text/plain;charset=utf-8');
-					res.end('文件读取失败，请稍后重试！');
-				}else{
-					res.setHeader('Content-Type','text/html;charset=utf-8');
-					res.end(data);
-				}
-			});
-		}else if(pathname == '/getComments'){
-			//get comments
-			comments.getComments(function(err,data){
-				if(err){
-					res.setHeader('Content-Type','text/plain;charset=utf-8');
-					res.end('文件读取失败，请稍后重试！');
-				}else{
-					res.setHeader('Content-Type','application/json;charset=utf-8');
-					res.end(JSON.stringify(data));
-				}
-			});
-		}else if(pathname == '/addComment'){
-			//add comment
-			comments.addComment(post,function(err,data){
-				if(err){
-					res.setHeader('Content-Type','text/plain;charset=utf-8');
-					res.end('文件读取失败，请稍后重试！');
-				}else{
-					res.setHeader('Content-Type','application/json;charset=utf-8');
-					res.end(JSON.stringify(data));
-				}
-			});
-		}else if(pathname == '/deleteComment'){
-			//delete comment
+// Middleware
+app.use(bodyParser.json());
+app.use(cors());
+
+// Data structure
+const posts = {};
+
+// Event handlers
+const handleEvent = (type, data) => {
+    if (type === 'PostCreated') {
+        const { id, title } = data;
+        posts[id] = { id, title, comments: [] };
+    }
+
+    if (type === 'CommentCreated') {
+        const { id, content, postId, status } = data;
+        const post = posts[postId];
+        post.comments.push({ id, content, status });
+    }
+
+    if (type === 'CommentUpdated') {
+        const { id, content, postId, status } = data;
+        const post = posts[postId];
+        const comment = post.comments.find(comment => {
+            return comment.id === id;
+        });
+        comment.status = status;
+        comment.content = content;
+    }
+}
+
+// Routes
+app.get('/posts', (req, res) => {
+    res.send(posts);
+});
+
+// Listen for events
+app.post('/events', (req, res) => {
+    const { type, data } = req.body;
+    handleEvent(type, data);
+    res.send({});
+});
+
+// Start server
+app.listen(4002, async () => {
+    console.log('Listening on 4002');
+
+    // Get all events
+    const res = await axios.get('http://localhost:4005/events');
+
+    // Loop through events and send to event handler
+    for (let event of res.data) {
+        console.log('Processing event:', event.type);
+        handleEvent(event.type, event.data);
+    }
+});
